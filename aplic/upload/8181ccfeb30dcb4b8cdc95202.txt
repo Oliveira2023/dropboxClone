@@ -1,0 +1,1 @@
+texto dentro do arquivo ajax para retorno da função de teste
