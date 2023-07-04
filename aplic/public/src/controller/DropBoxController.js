@@ -47,6 +47,46 @@ class DropBoxController {
     getSelection(){
         return this.listFilesEl.querySelectorAll('.selected')
     }
+    removeFolderTask(ref, name){
+
+        return new Promise((resolve, reject)=>{
+            let folderRef = this.getFirebaseRef(ref + '/' + name)
+            folderRef.on('value', snapshot=>{
+                folderRef.off('value')
+                snapshot.forEach(item=>{
+                    let data = item.val()
+                    data.key = item.key
+
+                    if(data.type === 'folder'){
+                        this.removeFolderTask(ref + '/' + name, data.name).then(()=>{
+                            resolve({
+                                fields:{
+                                    key: data.key
+                                }
+                            })
+                        }).catch(err=>{
+                            reject(err)
+                        })
+                    }else if(data.type){
+                        this.removeFile(ref + '/' + name, data.name).then(()=>{
+                            resolve({
+                                fields:{
+                                    key: data.key
+                                }
+                            })
+                        }).catch(err=>{
+                            reject(err)
+                        })
+
+                        
+                    }
+                })
+                folderRef.remove()
+                
+            })
+        })
+    }
+
     removeTask(){
 
         let promises =[]
@@ -54,37 +94,61 @@ class DropBoxController {
         this.getSelection().forEach(li=>{
             let file = JSON.parse(li.dataset.file)
             let key = li.dataset.key
-            console.log(key, file.filepath)
-            let formData = new FormData()
-            formData.append("filepath", file.filepath)
-            formData.append("key", key)
+            //console.log(key, file.filepath)
 
-            promises.push(this.ajax('file:' + file.filepath, 'DELETE', formData))
+            promises.push(new Promise((resolve, reject)=>{
+                
+                if(file.type === 'folder'){
+                    this.removeFolderTask(this.currentFolder.join('/'),file.name).then(()=>{
+                        resolve({
+                            fields:{
+                                key
+                            }
+                        })
+                    })
+                }else if(file.type){
+                    this.removeFile(this.currentFolder.join('/'),file.name).then(()=>{
+                        resolve({
+                            fields:{
+                                key
+                            }
+                        })
+                    })
+                }
+                
+                
+                
+            }))
         })
         //console.log(promises[0])
         return Promise.all(promises)
+    }
+    removeFile(ref, name){
+        let fileRef = firebase.storage().ref(ref).child(name)
+
+        return fileRef.delete()
     }
 
     initEvents(){
 
         this.btnNewFolder.addEventListener("click", ()=>{
             
-            let originalFilename = prompt('Nome da nova pasta:')
+            let name = prompt('Nome da nova pasta:')
 
-            if(originalFilename){
+            if(name){
                 this.getFirebaseRef().push().set({
-                    originalFilename,
-                    mimetype: 'folder',
-                    filepath: this.currentFolder.join('/')
+                    name,
+                    type: 'folder',
+                    path: this.currentFolder.join('/')
                 })
             }
         })
         this.btnDelete.addEventListener('click', e=>{
             
             this.removeTask().then(responses=>{
-                console.log('dentro do then')
+                //console.log('dentro do then')
                 responses.forEach(response=>{
-                    console.log('response') // não vem ate aqui
+                    //console.log('response') // não vem ate aqui
                     if(response.fields.key){
                         this.getFirebaseRef().child(response.fields.key).remove()
                     }
@@ -96,9 +160,9 @@ class DropBoxController {
         this.btnRename.addEventListener('click', e=>{
             let li = this.getSelection()[0]
             let file = JSON.parse(li.dataset.file)
-            let name = prompt('Renomear o arquivo:', file.originalFilename)
+            let name = prompt('Renomear o arquivo:', file.name)
             if (name) {
-                file.originalFilename = name
+                file.name = name
                 this.getFirebaseRef().child(li.dataset.key).set(file)
             }
 
@@ -131,17 +195,24 @@ class DropBoxController {
             
             this.uploadTask(event.target.files).then(responses =>{
                 responses.forEach(resp =>{
-                    //console.log(resp.files['input-file'])
+                    //console.log('resp',resp)
                     
-                    this.getFirebaseRef().push().set(resp.files['input-file'])
+                    this.getFirebaseRef().push().set({
+                        name: resp.name,
+                        type: resp.contentType,
+                        path: resp.downloadURLs[0],
+                        size: resp.size
+                    })
                 })
                 this.uploadComplete()
             }).catch(err=>{
                 this.uploadComplete()
                 console.error(err)
             })
-            this.modalShow()
+                this.modalShow()
             
+            
+        
         })
     }
     uploadComplete(){
@@ -162,7 +233,7 @@ class DropBoxController {
         return new Promise((resolve, reject)=>{
             let ajax =  new XMLHttpRequest()
             
-            console.log(method, url)
+            //console.log(method, url)
 
             ajax.open(method, url)
             //ok
@@ -196,16 +267,29 @@ class DropBoxController {
 
         files.forEach(file => {
 
-            let formData = new FormData()
-            formData.append('input-file', file)
+            promises.push(new Promise((resolve, reject)=>{
 
-            promises.push(this.ajax('/upload','POST', formData, (event)=>{
+                let fileRef = firebase.storage().ref(this.currentFolder.join('/')).child(file.name)
 
-                this.uploadProgress(event,file)
-            }, ()=>{
-                this.startUploadTime = Date.now()
+                let task = fileRef.put(file)
+    
+                task.on('state_changed', (snapshot)=>{
+                    this.uploadProgress({
+                        loaded: snapshot.bytesTransferred,
+                        total: snapshot.totalBytes
+                    }, file)
+                    
+                }, error =>{
+                    console.error(error)
+                    reject(error)
+                }, () =>{
+                    fileRef.getMetadata().then(metadata=>{
+                        resolve(metadata)
+                    }).catch(err=>{
+                        reject(err)
+                    })
+                })
             }))
-            
         });
 
         return Promise.all(promises)
@@ -239,7 +323,7 @@ class DropBoxController {
     }
     getFileIconView(file){
 
-        switch(file.mimetype){
+        switch(file.type){
             case 'folder':
                 return `
                     <svg width="160" height="160" viewBox="0 0 160 160" class="mc-icon-template-content tile__preview tile__preview--icon">
@@ -297,6 +381,7 @@ class DropBoxController {
                 `
                 break
             case 'application/pdf':
+            
                 return `
                     <svg version="1.1" id="Camada_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" width="160px" height="160px" viewBox="0 0 160 160" enable-background="new 0 0 160 160" xml:space="preserve">
                     <filter height="102%" width="101.4%" id="mc-content-unknown-large-a" filterUnits="objectBoundingBox" y="-.5%" x="-.7%">
@@ -375,7 +460,7 @@ class DropBoxController {
                     </g>
                 </svg>
                 `
-                break
+
             default:
                 return `
                 <svg width="160" height="160" viewBox="0 0 160 160" class="mc-icon-template-content tile__preview tile__preview--icon">
@@ -407,7 +492,7 @@ class DropBoxController {
 
         li.innerHTML = `
                 ${this.getFileIconView(file)}
-                <div class="name text-center">${file.originalFilename}</div>
+                <div class="name text-center">${file.name}</div>
         `
         this.initEventsLi(li)
         return li
@@ -420,7 +505,7 @@ class DropBoxController {
                 let key = snapshotItem.key
                 let data = snapshotItem.val()
                 //console.log(key, data)
-                if(data.mimetype){
+                if(data.type){
                     this.listFilesEl.appendChild(this.getFileView(data, key))
                 }
                 
@@ -474,14 +559,14 @@ class DropBoxController {
         li.addEventListener('dblclick', ()=>{
             
             let file = JSON.parse(li.dataset.file)
-            switch (file.mimetype){
+            switch (file.type){
 
                 case 'folder':
-                    this.currentFolder.push(file.originalFilename)
+                    this.currentFolder.push(file.name)
                     this.openFolder()
                     break
                 default:
-                    window.open('/file?path=' + file.filepath)
+                    window.open('/file?path=' + file.path)
             }
 
         })
@@ -512,9 +597,7 @@ class DropBoxController {
                 }
                 
             }
-            // var tecla = e.ctrlkey;
-            // alert(tecla);
-            //let ativo = true
+
             if(!e.ctrlKey){
                 this.listFilesEl.querySelectorAll('li.selected').forEach(el=>{
                     el.classList.remove('selected')
