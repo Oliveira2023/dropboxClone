@@ -23,13 +23,7 @@ class DropBoxController {
         
 
     }
-    // testeAjax() {
-    //     this.btnTajax.addEventListener('click', ()=>{
-    //         this.ajax("file:8181ccfeb30dcb4b8cdc95202.txt", 'GET')
-            
-    //         alert('funciona o click')
-    //     })
-    //}
+
     connectFirebase(){
         const firebaseConfig = {
             apiKey: "AIzaSyDAYJZAoLKv_OUr5-4v5a0bxAHhGfOB0Uw",
@@ -48,16 +42,20 @@ class DropBoxController {
         return this.listFilesEl.querySelectorAll('.selected')
     }
     removeFolderTask(ref, name){
-
+        
         return new Promise((resolve, reject)=>{
             let folderRef = this.getFirebaseRef(ref + '/' + name)
+            
             folderRef.on('value', snapshot=>{
+
                 folderRef.off('value')
+
                 snapshot.forEach(item=>{
                     let data = item.val()
                     data.key = item.key
-
+                    
                     if(data.type === 'folder'){
+
                         this.removeFolderTask(ref + '/' + name, data.name).then(()=>{
                             resolve({
                                 fields:{
@@ -81,6 +79,7 @@ class DropBoxController {
                         
                     }
                 })
+
                 folderRef.remove()
                 
             })
@@ -94,7 +93,6 @@ class DropBoxController {
         this.getSelection().forEach(li=>{
             let file = JSON.parse(li.dataset.file)
             let key = li.dataset.key
-            //console.log(key, file.filepath)
 
             promises.push(new Promise((resolve, reject)=>{
                 
@@ -115,15 +113,13 @@ class DropBoxController {
                         })
                     })
                 }
-                
-                
-                
             }))
         })
-        //console.log(promises[0])
+
         return Promise.all(promises)
     }
     removeFile(ref, name){
+
         let fileRef = firebase.storage().ref(ref).child(name)
 
         return fileRef.delete()
@@ -136,19 +132,22 @@ class DropBoxController {
             let name = prompt('Nome da nova pasta:')
 
             if(name){
+
                 this.getFirebaseRef().push().set({
                     name,
                     type: 'folder',
                     path: this.currentFolder.join('/')
+                    
                 })
             }
+
         })
         this.btnDelete.addEventListener('click', e=>{
             
             this.removeTask().then(responses=>{
-                //console.log('dentro do then')
+
                 responses.forEach(response=>{
-                    //console.log('response') // não vem ate aqui
+
                     if(response.fields.key){
                         this.getFirebaseRef().child(response.fields.key).remove()
                     }
@@ -195,7 +194,6 @@ class DropBoxController {
             
             this.uploadTask(event.target.files).then(responses =>{
                 responses.forEach(resp =>{
-                    //console.log('resp',resp)
                     
                     this.getFirebaseRef().push().set({
                         name: resp.name,
@@ -205,6 +203,7 @@ class DropBoxController {
                     })
                 })
                 this.uploadComplete()
+                this.btnSendFileEl.disabled = false
             }).catch(err=>{
                 this.uploadComplete()
                 console.error(err)
@@ -233,22 +232,20 @@ class DropBoxController {
         return new Promise((resolve, reject)=>{
             let ajax =  new XMLHttpRequest()
             
-            //console.log(method, url)
-
             ajax.open(method, url)
             //ok
             ajax.onload = event=>{
-                //console.log('entrou no onload')   
+
                 try{
                     resolve(JSON.parse(ajax.responseText))
                 } catch (e){
-                  //  console.log('erro no catch')
+
                     reject(e)
                 }
             }
-            //ok  
+
             ajax.onerror = event=>{
-                console.log('entra no erro aqui no ajax')
+
                 reject(event)
             }
             
@@ -257,7 +254,7 @@ class DropBoxController {
             onloadstart();
             
             ajax.send(formData)
-            //ok
+
         })
     }
 
@@ -274,6 +271,7 @@ class DropBoxController {
                 let task = fileRef.put(file)
     
                 task.on('state_changed', (snapshot)=>{
+
                     this.uploadProgress({
                         loaded: snapshot.bytesTransferred,
                         total: snapshot.totalBytes
@@ -291,11 +289,13 @@ class DropBoxController {
                 })
             }))
         });
-
+        
         return Promise.all(promises)
     }
     uploadProgress(event, file){
+        
         let timeSpent = Date.now() - this.startUploadTime
+
         let loaded = event.loaded
         let total = event.total
         let porcent = parseInt((loaded/total)*100)
@@ -504,7 +504,7 @@ class DropBoxController {
             snapshot.forEach(snapshotItem => {
                 let key = snapshotItem.key
                 let data = snapshotItem.val()
-                //console.log(key, data)
+
                 if(data.type){
                     this.listFilesEl.appendChild(this.getFileView(data, key))
                 }
@@ -566,7 +566,7 @@ class DropBoxController {
                     this.openFolder()
                     break
                 default:
-                    window.open('/file?path=' + file.path)
+                    window.open(file.path)
             }
 
         })
